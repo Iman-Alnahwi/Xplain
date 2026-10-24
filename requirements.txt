@@ -1,0 +1,6 @@
+streamlit==1.50.0
+requests==2.32.5
+pandas==2.3.3
+pillow==11.3.0
+pypdf==6.21.2
+openpyxl==3.1.5
