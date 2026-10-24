@@ -54,6 +54,11 @@ Groq or the Gemini API can be chosen in Settings instead (keys in `.env.example`
 | Flowcharts | Mermaid |
 | UI | Streamlit |
 
+## Deploy on DigitalOcean (live demo)
+1. App Platform → **Create App** → GitHub → this repo. The `Dockerfile` is detected (port 8080).
+2. Add an encrypted environment variable **`DO_MODEL_ACCESS_KEY`** (Control Panel → AI → Model access keys).
+3. The app then uses **Gemma 4 31B (`gemma-4-31B-it`) on DigitalOcean Serverless Inference** — no GPU server to manage.
+
 ## Privacy
 Files are processed in memory and never stored. They are sent only to the model provider you select. Payment links are taken from the bill itself — the app never invents one; if none is printed it opens a web search for the biller's official page.
 

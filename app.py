@@ -60,6 +60,7 @@ MUTED = "#5E6B75"
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+DO_URL = "https://inference.do-ai.run/v1/chat/completions"  # DigitalOcean Serverless Inference (OpenAI-compatible)
 FLUX_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
 
 OLLAMA_URL = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -67,6 +68,7 @@ DEFAULT_OLLAMA_TEXT = "gemma4:e4b"     # Google Gemma 4 (open weights) — real 
 DEFAULT_OLLAMA_VISION = "gemma4:e4b"   # the same model also reads photos of bills and documents
 # "llama3.2" also works for English-only text (type it in Settings)
 DEFAULT_GEMMA_MODEL = "gemma-4-26b-a4b-it"
+DEFAULT_DO_MODEL = "gemma-4-31B-it"  # Gemma 4 31B hosted by DigitalOcean
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 APP_NAME = "Xplain"  # a neutral, letters-only name that reads the same in every language
@@ -108,6 +110,7 @@ T = {
         "provider_gemma": "Gemma 4 (Gemini API)",
         "provider_groq": "نموذج مفتوح على Groq",
         "provider_demo": "الوضع التجريبي (دون مفتاح)",
+        "provider_do": "Gemma 4 على DigitalOcean (سحابي)",
         "provider_ollama": "Gemma 4 على جهازك (Ollama، دون مفتاح)",
         "ollama_down": "⚠️ برنامج Ollama لا يعمل على هذا الجهاز، لذلك تُعرض أمثلة تجريبية. شغّله ثم أعد المحاولة.",
         "vision_model": "نموذج قراءة الصور",
@@ -229,6 +232,7 @@ T = {
         "provider_gemma": "Gemma 4 (Gemini API)",
         "provider_groq": "Open-weight model on Groq",
         "provider_demo": "Demo mode (no key)",
+        "provider_do": "Gemma 4 on DigitalOcean (cloud)",
         "provider_ollama": "Gemma 4 on this computer (Ollama, no key)",
         "ollama_down": "⚠️ Ollama is not running on this computer, so demo answers are shown. Start it and try again.",
         "vision_model": "Image-reading model",
@@ -350,6 +354,7 @@ T = {
         "provider_gemma": "Gemma 4 (Gemini API)",
         "provider_groq": "Groq üzerinde açık model",
         "provider_demo": "Demo modu (anahtarsız)",
+        "provider_do": "DigitalOcean'da Gemma 4 (bulut)",
         "provider_ollama": "Bu bilgisayarda Gemma 4 (Ollama, anahtarsız)",
         "ollama_down": "⚠️ Ollama bu bilgisayarda çalışmıyor, bu yüzden demo yanıtları gösteriliyor. Başlatıp tekrar dene.",
         "vision_model": "Görsel okuma modeli",
@@ -630,23 +635,24 @@ def call_llm(prompt, images=None, json_mode=False):
         # Skip "thought" parts if thinking is enabled on the model
         return "".join(p.get("text", "") for p in out_parts if not p.get("thought"))
 
-    if s["provider"] == "groq":
+    if s["provider"] in ("groq", "digitalocean"):
+        url, name = (GROQ_URL, "Groq") if s["provider"] == "groq" else (DO_URL, "DigitalOcean")
         content = [{"type": "text", "text": prompt}]
         for mime, data in images:
             url = f"data:{mime};base64,{base64.b64encode(data).decode()}"
             content.append({"type": "image_url", "image_url": {"url": url}})
         resp = requests.post(
-            GROQ_URL,
+            url,
             headers={"Authorization": f"Bearer {s['api_key']}"},
             json={
                 "model": s["model"],
                 "messages": [{"role": "user", "content": content if images else prompt}],
                 "temperature": 0.3,
             },
-            timeout=120,
+            timeout=180,
         )
         if resp.status_code != 200:
-            raise LLMError(f"Groq API {resp.status_code}: {resp.text[:300]}")
+            raise LLMError(f"{name} API {resp.status_code}: {resp.text[:300]}")
         return resp.json()["choices"][0]["message"]["content"]
 
     raise LLMError("No provider configured")
@@ -1970,15 +1976,20 @@ def header():
 
 def sidebar():
     with st.sidebar.expander(t("settings"), expanded=False):
-        providers = {"ollama": t("provider_ollama"), "groq": t("provider_groq"), "gemma": t("provider_gemma"),
-                     "demo": t("provider_demo")}
-        default_provider = ("ollama" if ollama_models() else "groq" if os.getenv("GROQ_API_KEY")
-                            else "gemma" if os.getenv("GEMINI_API_KEY") else "demo")
+        providers = {"digitalocean": t("provider_do"), "ollama": t("provider_ollama"), "groq": t("provider_groq"),
+                     "gemma": t("provider_gemma"), "demo": t("provider_demo")}
+        default_provider = ("digitalocean" if os.getenv("DO_MODEL_ACCESS_KEY") else "ollama" if ollama_models()
+                            else "groq" if os.getenv("GROQ_API_KEY") else "gemma" if os.getenv("GEMINI_API_KEY")
+                            else "demo")
         provider = st.radio(t("provider"), list(providers), format_func=providers.get,
                             index=list(providers).index(default_provider))
 
         api_key, model, vision_model = "", "", ""
-        if provider == "ollama":
+        if provider == "digitalocean":
+            # the key comes from the server's environment; visitors never see or type it
+            api_key = os.getenv("DO_MODEL_ACCESS_KEY", "")
+            model = st.text_input(t("model"), value=os.getenv("DO_MODEL", DEFAULT_DO_MODEL))
+        elif provider == "ollama":
             model = st.text_input(t("model"), value=DEFAULT_OLLAMA_TEXT)
             vision_model = st.text_input(t("vision_model"), value=DEFAULT_OLLAMA_VISION)
         elif provider == "gemma":
